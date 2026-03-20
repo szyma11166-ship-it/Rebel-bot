@@ -4,12 +4,14 @@ import time
 import json
 import os
 
-print("START BOT")
+print("START SNIPER BOT")
 
 URL = "https://www.rebel.pl/pokemon"
 
 TOKEN = os.environ.get("TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+
+CHECK_INTERVAL = 15  # co ile sekund (możesz dać np. 10)
 
 
 def send_telegram(msg):
@@ -46,11 +48,21 @@ def get_products():
             if "/produkt/" in link:
                 full_link = "https://www.rebel.pl" + link
 
+                # sprawdzamy czy preorder
+                text = item.text.lower()
+
+                if "przedsprzedaż" in text or "preorder" in text:
+                    status = "preorder"
+                else:
+                    status = "available"
+
                 products.append({
                     "name": name,
                     "price": "Sprawdź cenę",
-                    "link": full_link
+                    "link": full_link,
+                    "status": status
                 })
+
         except:
             continue
 
@@ -80,12 +92,17 @@ def main():
 
         for p in products:
             if p["link"] not in seen:
-                msg = f"🔥 Nowy produkt!\n\n{p['name']}\n{p['price']}\n{p['link']}"
+
+                if p["status"] == "available":
+                    msg = f"🟢 W SPRZEDAŻY\n\n{p['name']}\n{p['price']}\n{p['link']}"
+                else:
+                    msg = f"🟡 PRZEDPREMIEROWE\n\n{p['name']}\n{p['price']}\n{p['link']}"
+
                 send_telegram(msg)
                 seen.append(p["link"])
 
         save_seen(seen)
-        time.sleep(300)
+        time.sleep(CHECK_INTERVAL)
 
 
 if __name__ == "__main__":
