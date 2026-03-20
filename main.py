@@ -15,17 +15,20 @@ CHAT_ID = os.environ.get("CHAT_ID")
 def send_telegram(msg):
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        response = requests.get(url, params={
+        requests.get(url, params={
             "chat_id": CHAT_ID,
             "text": msg
         })
-        print("TELEGRAM RESPONSE:", response.text)
     except Exception as e:
         print("ERROR TELEGRAM:", e)
 
 
 def get_products():
-    r = requests.get(URL)
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    r = requests.get(URL, headers=headers)
     soup = BeautifulSoup(r.text, "html.parser")
 
     products = []
@@ -45,7 +48,7 @@ def get_products():
 
                 products.append({
                     "name": name,
-                    "price": "Sprawdź na stronie",
+                    "price": "Sprawdź cenę",
                     "link": full_link
                 })
         except:
@@ -68,20 +71,15 @@ def save_seen(data):
 
 
 def main():
-    print("TEST START")
-
-    send_telegram("🚨 TEST DZIAŁA 🚨")
-
-    time.sleep(10)
+    seen = load_seen()
 
     while True:
-        print("SPRAWDZAM PRODUKTY...")
+        print("SPRAWDZAM...")
 
         products = get_products()
 
         for p in products:
-            # TESTOWO — wysyła wszystko
-            if True:
+            if p["link"] not in seen:
                 msg = f"🔥 Nowy produkt!\n\n{p['name']}\n{p['price']}\n{p['link']}"
                 send_telegram(msg)
                 seen.append(p["link"])
