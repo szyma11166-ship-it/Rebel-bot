@@ -68,7 +68,11 @@ def save_seen(data):
 
 
 def main():
-    seen = load_seen()
+    print("TEST START")
+
+    send_telegram("🚨 TEST DZIAŁA 🚨")
+
+    time.sleep(10)
 
     while True:
         print("SPRAWDZAM PRODUKTY...")
