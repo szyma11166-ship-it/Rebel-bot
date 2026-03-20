@@ -61,7 +61,7 @@ def main():
         products = get_products()
 
         for p in products:
-            if p["link"] not in seen:
+            if True:
                 msg = f"🔥 Nowy produkt!\n\n{p['name']}\n{p['price']}\n{p['link']}"
                 send_telegram(msg)
                 seen.append(p["link"])
