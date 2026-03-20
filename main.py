@@ -20,17 +20,24 @@ def get_products():
 
     products = []
 
-    for item in soup.select(".product-tile"):
-        try:
-            name = item.select_one(".product-name").text.strip()
-            price = item.select_one(".price").text.strip()
-            link = "https://www.rebel.pl" + item.select_one("a")["href"]
+    items = soup.find_all("a")
 
-            products.append({
-                "name": name,
-                "price": price,
-                "link": link
-            })
+    for item in items:
+        try:
+            name = item.text.strip()
+            link = item.get("href")
+
+            if not link or not name:
+                continue
+
+            if "/produkt/" in link:
+                full_link = "https://www.rebel.pl" + link
+
+                products.append({
+                    "name": name,
+                    "price": "Sprawdź na stronie",
+                    "link": full_link
+                })
         except:
             continue
 
