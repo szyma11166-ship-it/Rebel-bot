@@ -72,8 +72,6 @@ def check_rebel():
 
 print("🚀 START REBEL BOT")
 
-send("🚀 TEST KANAŁ OKAZJI")
-
 while True:
     try:
         check_rebel()
