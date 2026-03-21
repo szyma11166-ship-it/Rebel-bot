@@ -16,9 +16,6 @@ def send(msg):
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     })
- send("TEST KANAŁ")
-
-
 
 def format_msg(name, price, link, preorder):
     status = "🟣 <b>PRZEDPREMIERA</b>" if preorder else "🟢 <b>DOSTĘPNE</b>"
