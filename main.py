@@ -4,7 +4,7 @@ import time
 import os
 
 TOKEN = os.environ.get("TOKEN")
-CHAT_ID = -1003743099672
+CHAT_ID = "-1003743099672"
 
 sent = set()
 
