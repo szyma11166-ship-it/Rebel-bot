@@ -6,6 +6,8 @@ import os
 TOKEN = os.environ.get("TOKEN")
 CHAT_ID = "-1003743099672"
 
+send("TEST KANAŁ")
+
 sent = set()
 
 def send(msg):
