@@ -24,7 +24,7 @@ CHAT_ID = "-1003743099672"
 SENT_FILE        = "rebel_sent.json"
 SUMMARY_FILE     = "rebel_summary.json"
 CHECK_EVERY      = 60
-SUMMARY_HOUR     = 20
+SUMMARY_HOUR     = 18
 DEBUG_HTML       = False
 
 HEADERS = {
