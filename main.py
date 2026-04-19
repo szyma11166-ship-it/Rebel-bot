@@ -3,16 +3,18 @@ REBEL POKEMON MONITOR BOT
 Monitoruje rebel.pl/pokemon i wysyła alerty na Telegram
 gdy pojawiają się nowe sealed produkty Pokémon TCG.
 + Codzienne podsumowanie o 20:00 z kategoryzacją.
++ Fix: sprawdzanie dostępności produktu.
++ Fix: deduplicacja po nazwie produktu (nie URL).
 """
 
 import requests
 from bs4 import BeautifulSoup
 import time
-import os
 import json
 import logging
 from datetime import datetime, date
 from pathlib import Path
+from urllib.parse import urljoin, urlparse, urlunparse
 
 # ── Konfiguracja ──────────────────────────────────────────────────────────────
 
@@ -20,9 +22,9 @@ TOKEN   = "8641671766:AAEfRWe-lHc_8LLTA-rDecW3NjooDmENOl4"
 CHAT_ID = "-1003743099672"
 
 SENT_FILE        = "rebel_sent.json"
-SUMMARY_FILE     = "rebel_summary.json"   # Nowość: stan podsumowania
+SUMMARY_FILE     = "rebel_summary.json"
 CHECK_EVERY      = 60
-SUMMARY_HOUR     = 20                     # Godzina wysyłki podsumowania
+SUMMARY_HOUR     = 20
 DEBUG_HTML       = False
 
 HEADERS = {
@@ -38,6 +40,20 @@ HEADERS = {
 URLS_TO_MONITOR = [
     "https://www.rebel.pl/pokemon",
     "https://www.rebel.pl/karty-pokemon",
+]
+
+# ── Sygnały niedostępności ────────────────────────────────────────────────────
+
+UNAVAILABLE_SIGNALS = [
+    "niedostępny", "produkt niedostępny", "wyprzedany",
+    "brak w magazynie", "obecnie niedostępny", "out of stock",
+    "unavailable", "sold out",
+]
+
+# Teksty obecne TYLKO gdy produkt dostępny (kup / dodaj do koszyka)
+AVAILABLE_SIGNALS = [
+    "dodaj do koszyka", "kup teraz", "add to cart", "buy now",
+    "zamów", "do koszyka",
 ]
 
 # ── Filtry sealed produktów ───────────────────────────────────────────────────
@@ -58,25 +74,24 @@ BLOCKED_KEYWORDS = [
 
 PREORDER_KEYWORDS = [
     "przedsprzedaż", "preorder", "pre-order", "zapowiedź",
-    "wkrótce", "dostępny od", "premiera",
+    "wkrótce", "dostępny od", "premiera", "planowana premiera",
 ]
 
 # ── Kategorie do podsumowania ─────────────────────────────────────────────────
 
-# Kolejność ma znaczenie — pierwsza pasująca wygrywa
 CATEGORIES = [
-    ("📦 Booster Boxy / Display",   ["booster box", "display"]),
+    ("📦 Booster Boxy / Display",    ["booster box", "display"]),
     ("🎁 Elite Trainer Boxy / Tiny", ["etb", "elite trainer box", "tin"]),
     ("🎴 Blistry / Pack",            ["blister", "booster pack", "build & battle"]),
     ("💎 Kolekcje Premium",          ["premium collection", "ultra premium", "collection box", "bundle"]),
     ("🃏 Decki / Startery",          ["starter deck", "theme deck"]),
-    ("🔮 Inne Sealed",               []),  # catch-all
+    ("🔮 Inne Sealed",               []),
 ]
 
 def categorize(name: str, full_text: str) -> str:
     combined = (name + " " + full_text).lower()
     for label, keywords in CATEGORIES:
-        if not keywords:          # catch-all
+        if not keywords:
             return label
         if any(kw in combined for kw in keywords):
             return label
@@ -95,32 +110,58 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# ── Deduplicacja ──────────────────────────────────────────────────────────────
+
+def normalize_name(name: str) -> str:
+    """Klucz deduplicacji — lowercase, bez białych znaków."""
+    return " ".join(name.lower().split())
+
+def canonical_url(url: str) -> str:
+    """Usuwa parametry query i fragment z URL."""
+    p = urlparse(url)
+    return urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
+
 # ── Pamięć (JSON) ─────────────────────────────────────────────────────────────
 
-def load_sent() -> set:
+def load_sent() -> dict:
+    """
+    Zwraca dict:
+      {
+        "urls":  [...],   # kanoniczne URL-e (legacy + nowe)
+        "names": [...],   # znormalizowane nazwy produktów
+      }
+    """
     try:
-        data = json.loads(Path(SENT_FILE).read_text(encoding="utf-8"))
-        return set(data)
+        raw = json.loads(Path(SENT_FILE).read_text(encoding="utf-8"))
+        # Obsługa starego formatu (lista URL-i)
+        if isinstance(raw, list):
+            return {"urls": raw, "names": []}
+        return {
+            "urls":  raw.get("urls", []),
+            "names": raw.get("names", []),
+        }
     except Exception:
-        return set()
+        return {"urls": [], "names": []}
 
-def save_sent(sent: set):
+def save_sent(sent: dict):
     Path(SENT_FILE).write_text(
-        json.dumps(list(sent), ensure_ascii=False, indent=2),
+        json.dumps(sent, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
 
+def is_already_sent(sent: dict, name: str, url: str) -> bool:
+    """Zwraca True jeśli produkt był już wysłany — sprawdza nazwę ORAZ URL."""
+    if normalize_name(name) in sent["names"]:
+        return True
+    if canonical_url(url) in sent["urls"]:
+        return True
+    return False
+
+def mark_sent(sent: dict, name: str, url: str):
+    sent["names"].append(normalize_name(name))
+    sent["urls"].append(canonical_url(url))
+
 def load_summary_state() -> dict:
-    """
-    Zwraca słownik:
-      {
-        "last_summary_date": "2025-04-19",   # str ISO
-        "pending": [                          # produkty od ostatniego summary
-            {"name": ..., "price": ..., "link": ..., "category": ..., "preorder": bool},
-            ...
-        ]
-      }
-    """
     try:
         return json.loads(Path(SUMMARY_FILE).read_text(encoding="utf-8"))
     except Exception:
@@ -136,16 +177,19 @@ def save_summary_state(state: dict):
 
 def send_telegram(msg: str):
     if not TOKEN:
-        log.warning("Brak TELEGRAM_TOKEN — wiadomość nie wysłana.")
+        log.warning("Brak TOKEN — wiadomość nie wysłana.")
         return
     try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        r = requests.post(url, data={
-            "chat_id": CHAT_ID,
-            "text": msg,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }, timeout=10)
+        r = requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+            data={
+                "chat_id": CHAT_ID,
+                "text": msg,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
         if not r.ok:
             log.error(f"Telegram błąd: {r.status_code} {r.text[:200]}")
     except Exception as e:
@@ -164,7 +208,6 @@ def format_alert(name: str, price: str, link: str, preorder: bool) -> str:
     )
 
 def format_daily_summary(pending: list, day_str: str) -> str:
-    """Buduje wiadomość podsumowania z kategoryzacją."""
     if not pending:
         return (
             f"<b>📊 PODSUMOWANIE DNIA — {day_str}</b>\n\n"
@@ -172,17 +215,17 @@ def format_daily_summary(pending: list, day_str: str) -> str:
             f"Brak nowych sealed produktów dzisiaj. 😴"
         )
 
-    # Grupuj po kategorii
     grouped: dict[str, list] = {}
     for p in pending:
         cat = p.get("category", "🔮 Inne Sealed")
         grouped.setdefault(cat, []).append(p)
 
-    lines = [f"<b>📊 PODSUMOWANIE DNIA — {day_str}</b>\n", f"rebel.pl/pokemon\n"]
-    total = len(pending)
-    lines.append(f"<b>Łącznie nowych produktów: {total}</b>\n")
+    lines = [
+        f"<b>📊 PODSUMOWANIE DNIA — {day_str}</b>\n",
+        f"rebel.pl/pokemon\n",
+        f"<b>Łącznie nowych produktów: {len(pending)}</b>\n",
+    ]
 
-    # Zachowaj kolejność kategorii
     for label, _ in CATEGORIES:
         items = grouped.get(label)
         if not items:
@@ -190,7 +233,10 @@ def format_daily_summary(pending: list, day_str: str) -> str:
         lines.append(f"\n{label}")
         for p in items:
             pre_tag = " 🟣" if p.get("preorder") else ""
-            lines.append(f"• <a href=\"{p['link']}\">{p['name']}</a> — {p['price']}{pre_tag}")
+            lines.append(
+                f"• <a href=\"{p['link']}\">{p['name']}</a>"
+                f" — {p['price']}{pre_tag}"
+            )
 
     ts = datetime.now().strftime("%H:%M")
     lines.append(f"\n<i>🕐 Raport wygenerowany o {ts}</i>")
@@ -202,19 +248,33 @@ def is_sealed(name: str, full_text: str) -> bool:
     combined = (name + " " + full_text).lower()
     if any(kw in combined for kw in BLOCKED_KEYWORDS):
         return False
-    if any(kw in combined for kw in SEALED_KEYWORDS):
-        return True
-    return False
+    return any(kw in combined for kw in SEALED_KEYWORDS)
 
 def is_preorder(full_text: str) -> bool:
+    return any(kw in full_text.lower() for kw in PREORDER_KEYWORDS)
+
+def check_availability(full_text: str) -> bool:
+    """
+    Zwraca True jeśli produkt jest dostępny do kupienia.
+    Logika:
+      1. Jeśli znajdzie sygnał dostępności (koszyk/kup) → dostępny.
+      2. Jeśli znajdzie sygnał niedostępności → niedostępny.
+      3. Brak sygnałów → zakładamy niedostępny (bezpieczniej).
+    """
     t = full_text.lower()
-    return any(kw in t for kw in PREORDER_KEYWORDS)
+
+    if any(s in t for s in AVAILABLE_SIGNALS):
+        return True
+    if any(s in t for s in UNAVAILABLE_SIGNALS):
+        return False
+
+    # Brak jednoznacznego sygnału — ostrożnie pomijamy
+    return False
 
 # ── Parsowanie ────────────────────────────────────────────────────────────────
 
 def extract_products(html: str, base_url: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
-    products = []
 
     PRODUCT_SELECTORS = [
         ".product-box", ".product-item", ".product",
@@ -238,8 +298,10 @@ def extract_products(html: str, base_url: str) -> list[dict]:
             Path("rebel_debug.html").write_text(html, encoding="utf-8")
         return []
 
+    products = []
     for p in container:
         try:
+            # Nazwa
             name = None
             for sel in NAME_SELECTORS:
                 el = p.select_one(sel)
@@ -249,6 +311,7 @@ def extract_products(html: str, base_url: str) -> list[dict]:
             if not name:
                 continue
 
+            # Cena
             price = "brak ceny"
             for sel in PRICE_SELECTORS:
                 el = p.select_one(sel)
@@ -256,18 +319,23 @@ def extract_products(html: str, base_url: str) -> list[dict]:
                     price = el.get_text(strip=True)
                     break
 
+            # Link
             a = p.select_one("a[href]")
             if not a:
                 continue
             href = a["href"]
-            if href.startswith("http"):
-                link = href
-            else:
-                from urllib.parse import urljoin
-                link = urljoin(base_url, href)
+            link = href if href.startswith("http") else urljoin(base_url, href)
 
             full_text = p.get_text(" ", strip=True)
-            products.append({"name": name, "price": price, "link": link, "full_text": full_text})
+            available = check_availability(full_text)
+
+            products.append({
+                "name":      name,
+                "price":     price,
+                "link":      link,
+                "full_text": full_text,
+                "available": available,
+            })
 
         except Exception as e:
             log.debug(f"Błąd parsowania produktu: {e}")
@@ -276,7 +344,7 @@ def extract_products(html: str, base_url: str) -> list[dict]:
 
 # ── Główna logika ─────────────────────────────────────────────────────────────
 
-def check_rebel(sent: set, summary_state: dict) -> int:
+def check_rebel(sent: dict, summary_state: dict) -> int:
     new_count = 0
 
     for url in URLS_TO_MONITOR:
@@ -295,27 +363,35 @@ def check_rebel(sent: set, summary_state: dict) -> int:
             log.info(f"Znaleziono produktów do oceny: {len(products)}")
 
             for p in products:
-                link = p["link"]
-                if link in sent:
+                # ── Filtr 1: duplikat (nazwa lub URL) ──
+                if is_already_sent(sent, p["name"], p["link"]):
                     continue
+
+                # ── Filtr 2: sealed keyword ──
                 if not is_sealed(p["name"], p["full_text"]):
                     log.debug(f"POMINIĘTO (nie sealed): {p['name']}")
+                    continue
+
+                # ── Filtr 3: dostępność ──
+                if not p["available"]:
+                    log.info(f"POMINIĘTO (niedostępny): {p['name']}")
+                    # Zapisz do sent żeby nie sprawdzać przy każdym cyklu
+                    # ale NIE wysyłaj alertu
+                    mark_sent(sent, p["name"], p["link"])
                     continue
 
                 preorder = is_preorder(p["full_text"])
                 category = categorize(p["name"], p["full_text"])
 
-                # Alert natychmiastowy
-                msg = format_alert(p["name"], p["price"], link, preorder)
+                msg = format_alert(p["name"], p["price"], p["link"], preorder)
                 send_telegram(msg)
-                sent.add(link)
+                mark_sent(sent, p["name"], p["link"])
                 new_count += 1
 
-                # Dodaj do kolejki podsumowania
                 summary_state["pending"].append({
                     "name":     p["name"],
                     "price":    p["price"],
-                    "link":     link,
+                    "link":     p["link"],
                     "category": category,
                     "preorder": preorder,
                 })
@@ -330,21 +406,19 @@ def check_rebel(sent: set, summary_state: dict) -> int:
 
 
 def maybe_send_summary(summary_state: dict):
-    """Wysyła podsumowanie jeśli jest godzina 20:xx i jeszcze nie wysłano dzisiaj."""
     now = datetime.now()
     today_str = date.today().isoformat()
 
     if now.hour != SUMMARY_HOUR:
         return
     if summary_state.get("last_summary_date") == today_str:
-        return  # Już wysłano dzisiaj
+        return
 
     day_display = date.today().strftime("%d.%m.%Y")
     msg = format_daily_summary(summary_state["pending"], day_display)
     send_telegram(msg)
-    log.info(f"📊 Wysłano podsumowanie dnia ({len(summary_state['pending'])} produktów).")
+    log.info(f"📊 Wysłano podsumowanie ({len(summary_state['pending'])} produktów).")
 
-    # Resetuj stan
     summary_state["last_summary_date"] = today_str
     summary_state["pending"] = []
 
@@ -357,10 +431,13 @@ def main():
 
     sent          = load_sent()
     summary_state = load_summary_state()
-    log.info(f"Wczytano {len(sent)} znanych produktów | {len(summary_state['pending'])} w kolejce podsumowania")
+    log.info(
+        f"Wczytano {len(sent['names'])} znanych nazw, "
+        f"{len(sent['urls'])} URL-i | "
+        f"{len(summary_state['pending'])} w kolejce podsumowania"
+    )
 
     errors = 0
-
     while True:
         try:
             new = check_rebel(sent, summary_state)
@@ -368,12 +445,9 @@ def main():
             save_summary_state(summary_state)
 
             maybe_send_summary(summary_state)
-            save_summary_state(summary_state)  # Zapisz po ewentualnym resecie
+            save_summary_state(summary_state)
 
-            if new:
-                log.info(f"🎯 Wysłano {new} nowych alertów.")
-            else:
-                log.info("Brak nowych produktów.")
+            log.info(f"🎯 {new} nowych alertów." if new else "Brak nowych produktów.")
             errors = 0
 
         except Exception as e:
@@ -384,6 +458,7 @@ def main():
             continue
 
         time.sleep(CHECK_EVERY)
+
 
 if __name__ == "__main__":
     main()
