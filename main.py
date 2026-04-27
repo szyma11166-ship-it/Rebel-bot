@@ -1,12 +1,3 @@
-"""
-REBEL POKEMON MONITOR BOT
-Monitoruje rebel.pl/pokemon i wysyła alerty na Telegram
-gdy pojawiają się nowe sealed produkty Pokémon TCG.
-+ Codzienne podsumowanie o 20:00 z kategoryzacją.
-+ Fix: sprawdzanie dostępności produktu.
-+ Fix: deduplicacja po nazwie produktu (nie URL).
-"""
-
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -23,7 +14,7 @@ CHAT_ID = "-1003743099672"
 
 SENT_FILE        = "rebel_sent.json"
 SUMMARY_FILE     = "rebel_summary.json"
-CHECK_EVERY      = 60
+CHECK_EVERY      = 20
 SUMMARY_HOUR     = 18
 DEBUG_HTML       = False
 
@@ -73,8 +64,11 @@ BLOCKED_KEYWORDS = [
 ]
 
 PREORDER_KEYWORDS = [
-    "przedsprzedaż", "preorder", "pre-order", "zapowiedź",
-    "wkrótce", "dostępny od", "premiera", "planowana premiera",
+    "przedsprzedaż", "preorder", "pre-order",
+    "zapowiedź", "wkrótce",
+    "dostępny od", "premiera",
+    "planowana premiera",
+    "wysyłka od", "wysyłka w",
 ]
 
 # ── Kategorie do podsumowania ─────────────────────────────────────────────────
@@ -254,23 +248,19 @@ def is_preorder(full_text: str) -> bool:
     return any(kw in full_text.lower() for kw in PREORDER_KEYWORDS)
 
 def check_availability(full_text: str) -> bool:
-    """
-    Zwraca True jeśli produkt jest dostępny do kupienia.
-    Logika:
-      1. Jeśli znajdzie sygnał dostępności (koszyk/kup) → dostępny.
-      2. Jeśli znajdzie sygnał niedostępności → niedostępny.
-      3. Brak sygnałów → zakładamy niedostępny (bezpieczniej).
-    """
     t = full_text.lower()
 
-    if any(s in t for s in AVAILABLE_SIGNALS):
-        return True
+    # jeśli wyraźnie niedostępny → NIE
     if any(s in t for s in UNAVAILABLE_SIGNALS):
         return False
 
-    # Brak jednoznacznego sygnału — ostrożnie pomijamy
-    return False
+    # jeśli jest koszyk → TAK
+    if any(s in t for s in AVAILABLE_SIGNALS):
+        return True
 
+    # brak sygnału → traktuj jako potencjalnie dostępny
+    return True
+    
 # ── Parsowanie ────────────────────────────────────────────────────────────────
 
 def extract_products(html: str, base_url: str) -> list[dict]:
@@ -346,7 +336,6 @@ def extract_products(html: str, base_url: str) -> list[dict]:
 
 def check_rebel(sent: dict, summary_state: dict) -> int:
     new_count = 0
-
     for url in URLS_TO_MONITOR:
         log.info(f"Sprawdzam: {url}")
         try:
@@ -354,7 +343,9 @@ def check_rebel(sent: dict, summary_state: dict) -> int:
             if r.status_code == 429:
                 log.warning("Rate limit (429) — czekam 5 minut.")
                 time.sleep(300)
+
                 return new_count
+
             if not r.ok:
                 log.warning(f"HTTP {r.status_code} dla {url}")
                 continue
@@ -363,43 +354,56 @@ def check_rebel(sent: dict, summary_state: dict) -> int:
             log.info(f"Znaleziono produktów do oceny: {len(products)}")
 
             for p in products:
-                # ── Filtr 1: duplikat (nazwa lub URL) ──
                 if is_already_sent(sent, p["name"], p["link"]):
                     continue
 
-                # ── Filtr 2: sealed keyword ──
                 if not is_sealed(p["name"], p["full_text"]):
-                    log.debug(f"POMINIĘTO (nie sealed): {p['name']}")
-                    continue
-
-                # ── Filtr 3: dostępność ──
-                if not p["available"]:
-                    log.info(f"POMINIĘTO (niedostępny): {p['name']}")
-                    # Zapisz do sent żeby nie sprawdzać przy każdym cyklu
-                    # ale NIE wysyłaj alertu
-                    mark_sent(sent, p["name"], p["link"])
                     continue
 
                 preorder = is_preorder(p["full_text"])
+
+                # 🔥 KLUCZOWA ZMIANA:
+
+                # przepuszczamy preorder nawet bez dostępności
+
+                if not preorder and not p["available"]:
+
+                    log.info(f"POMINIĘTO (niedostępny i nie preorder): {p['name']}")
+
+                    mark_sent(sent, p["name"], p["link"])
+
+                    continue
+
                 category = categorize(p["name"], p["full_text"])
 
                 msg = format_alert(p["name"], p["price"], p["link"], preorder)
+
                 send_telegram(msg)
+
                 mark_sent(sent, p["name"], p["link"])
+
                 new_count += 1
 
                 summary_state["pending"].append({
+
                     "name":     p["name"],
+
                     "price":    p["price"],
+
                     "link":     p["link"],
+
                     "category": category,
+
                     "preorder": preorder,
+
                 })
 
                 log.info(f"✅ Wysłano: {p['name']} | {p['price']} | {category}")
+
                 time.sleep(1)
 
         except requests.exceptions.RequestException as e:
+
             log.error(f"Błąd sieci dla {url}: {e}")
 
     return new_count
