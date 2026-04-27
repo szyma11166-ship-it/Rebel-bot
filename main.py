@@ -261,6 +261,9 @@ def check_availability(full_text: str) -> bool:
     # brak sygnału → traktuj jako potencjalnie dostępny
     return True
     
+def is_sold_out(full_text: str) -> bool:
+    t = full_text.lower()
+    return any(s in t for s in UNAVAILABLE_SIGNALS)
 # ── Parsowanie ────────────────────────────────────────────────────────────────
 
 def extract_products(html: str, base_url: str) -> list[dict]:
@@ -361,17 +364,18 @@ def check_rebel(sent: dict, summary_state: dict) -> int:
                     continue
 
                 preorder = is_preorder(p["full_text"])
+                sold_out = is_sold_out(p["full_text"])
 
-                # 🔥 KLUCZOWA ZMIANA:
-
-                # przepuszczamy preorder nawet bez dostępności
-
-                if not preorder and not p["available"]:
-
-                    log.info(f"POMINIĘTO (niedostępny i nie preorder): {p['name']}")
-
+                # ❌ jeśli wyprzedany → pomijamy (nawet preorder)
+                if sold_out:
+                    log.info(f"POMINIĘTO (wyprzedany): {p['name']}")
                     mark_sent(sent, p["name"], p["link"])
+                    continue
 
+                # ❌ jeśli nie preorder i brak dostępności → pomijamy
+                if not preorder and not p["available"]:
+                    log.info(f"POMINIĘTO (niedostępny): {p['name']}")
+                    mark_sent(sent, p["name"], p["link"])
                     continue
 
                 category = categorize(p["name"], p["full_text"])
