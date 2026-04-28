@@ -232,8 +232,6 @@ def format_daily_summary(pending: list, day_str: str) -> str:
                 f" — {p['price']}{pre_tag}"
             )
 
-    ts = datetime.now().strftime("%H:%M")
-    lines.append(f"\n<i>🕐 Raport wygenerowany o {ts}</i>")
     return "\n".join(lines)
 
 # ── Filtry ────────────────────────────────────────────────────────────────────
