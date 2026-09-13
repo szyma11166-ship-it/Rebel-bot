@@ -10,14 +10,35 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 import cloudscraper
+from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
 
-# ── Globalne naprawienie problemów z SSL i certyfikatami ──────────────────────
+# ── Konfiguracja SSL / TLS dla starszych serwerów ──────────────────────────────
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
+
+class TlsAdapter(HTTPAdapter):
+    """Adapter naprawiający SSLV3_ALERT_HANDSHAKE_FAILURE na starszych serwerach."""
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        try:
+            ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
+        except Exception:
+            pass
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs['ssl_context'] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        try:
+            ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
+        except Exception:
+            pass
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs['ssl_context'] = ctx
+        return super().proxy_manager_for(*args, **kwargs)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -28,7 +49,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── Inicjalizacja Scrapera z nagłówkami User-Agent ───────────────────────────
+# ── Inicjalizacja Scrapera z adapterem TLS ──────────────────────────────────
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -43,12 +64,12 @@ scraper = cloudscraper.create_scraper(
     }
 )
 scraper.headers.update(HEADERS)
+scraper.mount("https://", TlsAdapter())
 
 # ── Konfiguracja Telegrama & Aplikacji ───────────────────────────────────────
 
 TOKEN   = "8641671766:AAEfRWe-lHc_8LLTA-rDecW3NjooDmENOl4"
 CHAT_ID = "-1003743099672"
-
 
 SENT_FILE = "tcg_sent.json"
 SUMMARY_FILE = "tcg_summary.json"
@@ -146,7 +167,8 @@ STORES = [
 
 UNAVAILABLE_SIGNALS = [
     "niedostępny", "wyprzedany", "brak w magazynie", 
-    "out of stock", "sold out", "brak na stanie", "niedostepny"
+    "out of stock", "sold out", "brak na stanie", "niedostepny",
+    "powiadom o dostępności", "wyprzedane", "chwilowo niedostępny"
 ]
 
 SEALED_KEYWORDS = [
@@ -347,6 +369,11 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
                 log.info(f"[{store.name}] Znaleziono produktów: {len(products)}")
 
                 for p in products:
+                    # Twarde odrzucanie produktów bez ceny (eliminuje niedostępne na 3Trolle)
+                    if p["price"] == "Brak ceny":
+                        mark_sent(sent, p["name"], p["link"])
+                        continue
+
                     if is_already_sent(sent, p["name"], p["link"]) or not is_sealed(p["name"], p["full_text"]):
                         continue
 
