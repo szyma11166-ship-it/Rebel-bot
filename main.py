@@ -1,4 +1,4 @@
-    import os
+import os
 import time
 import json
 import logging
@@ -25,12 +25,18 @@ SUMMARY_HOUR = 18       # Godzina wysyłki podsumowania
 MAX_HISTORY_SIZE = 5000 
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "pl-PL,pl;q=0.9",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "max-age=0",
+    "Sec-Ch-Ua": '"Chromium";v="128", "Not=A?Brand";v="24", "Google Chrome";v="128"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
 }
 
 # ── Definicja Sklepów TCG (Zaufane z UmbreNews) ───────────────────────────────
@@ -55,7 +61,10 @@ STORES = [
     ),
     StoreConfig(
         name="LofiCards",
-        urls=["https://loficards.pl/kategoria-produktu/pokemon-tcg/"],
+        urls=[
+            "https://loficards.pl/kategoria-produktu/pokemon/",
+            "https://loficards.pl/sklep/"
+        ],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
         price_selectors=[".price", ".amount"],
@@ -63,7 +72,10 @@ STORES = [
     ),
     StoreConfig(
         name="PokeTrader",
-        urls=["https://poketrader.eu/kategoria/pokemon-tcg/"],
+        urls=[
+            "https://poketrader.eu/sklep/",
+            "https://poketrader.eu/kategoria-produktu/pokemon/"
+        ],
         item_selector="li.product, div.product-grid-item",
         name_selectors=[".product-title", ".woocommerce-loop-product__title", "h2"],
         price_selectors=[".price", ".amount"],
@@ -71,7 +83,10 @@ STORES = [
     ),
     StoreConfig(
         name="BoosterPoint",
-        urls=["https://boosterpoint.pl/kategoria-produktu/pokemon-tcg/"],
+        urls=[
+            "https://boosterpoint.pl/kategoria-produktu/pokemon-tcg/",
+            "https://boosterpoint.pl/sklep/"
+        ],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
         price_selectors=[".price", ".amount"],
@@ -79,7 +94,10 @@ STORES = [
     ),
     StoreConfig(
         name="Flamberg",
-        urls=["https://flamberg.com.pl/category/gry-karciane-pokemon-tcg"],
+        urls=[
+            "https://flamberg.com.pl/category/pokemon",
+            "https://flamberg.com.pl/gry-karciane/pokemon-tcg"
+        ],
         item_selector="div.product, div.product-thumb",
         name_selectors=[".caption h4", ".name", "h4", "h3"],
         price_selectors=[".price", ".price-new"],
@@ -87,7 +105,10 @@ STORES = [
     ),
     StoreConfig(
         name="3Trolle",
-        urls=["https://3trolle.pl/113-pokemon"],
+        urls=[
+            "https://3trolle.pl/113-karty-pokemon",
+            "https://3trolle.pl/113-pokemon-tcg"
+        ],
         item_selector="article.product-miniature, div.product-container",
         name_selectors=[".product-title", ".h3.product-title", "h3"],
         price_selectors=[".price", ".product-price"],
@@ -95,7 +116,10 @@ STORES = [
     ),
     StoreConfig(
         name="PokeCollect",
-        urls=["https://pokecollect.pl/kategoria-produktu/pokemon-tcg/"],
+        urls=[
+            "https://pokecollect.pl/kategoria-produktu/pokemon/",
+            "https://pokecollect.pl/sklep/"
+        ],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
         price_selectors=[".price", ".amount"],
@@ -103,7 +127,10 @@ STORES = [
     ),
     StoreConfig(
         name="Świat Kart",
-        urls=["https://swiatkart.com.pl/kategoria-produktu/pokemon-tcg/"],
+        urls=[
+            "https://swiatkart.com.pl/kategoria-produktu/pokemon/",
+            "https://swiatkart.com.pl/sklep/"
+        ],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
         price_selectors=[".price", ".amount"],
