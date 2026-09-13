@@ -2,17 +2,25 @@ import os
 import time
 import json
 import logging
+import ssl
 import urllib3
 from dataclasses import dataclass
 from datetime import datetime, date
+from typing import List, Set, Optional
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 import cloudscraper
 from bs4 import BeautifulSoup
 
-# Wyłączenie ostrzeżeń o braku weryfikacji SSL
+# ── Rozwiązanie problemu SSL Handshake Failure ──────────────────────────────
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Wymuszenie obsługi starszych/szerszych szyfrów SSL przez bibliotekę urllib3
+try:
+    urllib3.util.ssl_.DEFAULT_CIPHERS += ':HIGH:!DH:!aNULL:@SECLEVEL=1'
+except AttributeError:
+    pass
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -23,7 +31,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── Inicjalizacja Scrapera (Obejście Cloudflare / HTTP 403) ───────────────────
+# ── Inicjalizacja Scrapera z nagłówkami User-Agent ───────────────────────────
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+}
 
 scraper = cloudscraper.create_scraper(
     browser={
@@ -32,19 +45,20 @@ scraper = cloudscraper.create_scraper(
         'desktop': True
     }
 )
+scraper.headers.update(HEADERS)
 
 # ── Konfiguracja Telegrama & Aplikacji ───────────────────────────────────────
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN", "TUTAJ_TWÓJ_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID", "-1003743099672")
+TOKEN   = "8641671766:AAEfRWe-lHc_8LLTA-rDecW3NjooDmENOl4"
+CHAT_ID = "-1003743099672"
 
 SENT_FILE = "tcg_sent.json"
 SUMMARY_FILE = "tcg_summary.json"
-CHECK_EVERY = 300       # 5 minut (300 sekund)
-SUMMARY_HOUR = 18       # Godzina wysyłki podsumowania
+CHECK_EVERY = 300       # 5 minut
+SUMMARY_HOUR = 18       # Godzina podsumowania
 MAX_HISTORY_SIZE = 5000 
 
-# ── Definicja Sklepów TCG (Użycie wyszukiwarek odpornych na 404) ──────────────
+# ── Definicja Sklepów TCG (Poprawione URL-e i Selectory Ceny) ────────────────
 
 @dataclass
 class StoreConfig:
@@ -69,7 +83,7 @@ STORES = [
         urls=["https://loficards.pl/?s=pokemon&post_type=product"],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
-        price_selectors=[".price", ".amount"],
+        price_selectors=[".price .amount", ".price", "bdi"],
         link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
@@ -77,7 +91,7 @@ STORES = [
         urls=["https://poketrader.eu/?s=pokemon&post_type=product"],
         item_selector="li.product, div.product-grid-item",
         name_selectors=[".product-title", ".woocommerce-loop-product__title", "h2"],
-        price_selectors=[".price", ".amount"],
+        price_selectors=[".price .amount", ".price", "bdi"],
         link_selectors=["a.product-title-link", "a[href]"]
     ),
     StoreConfig(
@@ -85,23 +99,23 @@ STORES = [
         urls=["https://boosterpoint.pl/?s=pokemon&post_type=product"],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
-        price_selectors=[".price", ".amount"],
+        price_selectors=[".price .amount", ".price", "bdi"],
         link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
         name="Flamberg",
-        urls=["https://flamberg.com.pl/szukaj?q=pokemon"],
-        item_selector="div.product-layout, div.product-thumb, div.product",
-        name_selectors=[".caption h4", ".name", "h4", "h3"],
-        price_selectors=[".price", ".price-new"],
-        link_selectors=["a[href*='/product/']", ".caption a", "a[href]"]
+        urls=["https://flamberg.com.pl/pol_m_Karty-Kolekcjonerskie_Pokemon-TCG-381.html"],
+        item_selector="div.product_data, div.product, div.product-layout",
+        name_selectors=[".product-name", ".name", "h3", "h4"],
+        price_selectors=[".price_value", ".price", ".price-new"],
+        link_selectors=["a.product-name", "a[href]"]
     ),
     StoreConfig(
         name="3Trolle",
         urls=["https://3trolle.pl/szukaj?controller=search&s=pokemon"],
         item_selector="article.product-miniature, div.product-container",
         name_selectors=[".product-title", ".h3.product-title", "h3"],
-        price_selectors=[".price", ".product-price"],
+        price_selectors=[".current-price", ".product-price-and-shipping", ".price", ".product-price"],
         link_selectors=["a.product-thumbnail", ".product-title a", "a[href]"]
     ),
     StoreConfig(
@@ -109,7 +123,7 @@ STORES = [
         urls=["https://pokecollect.pl/?s=pokemon&post_type=product"],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
-        price_selectors=[".price", ".amount"],
+        price_selectors=[".price .amount", ".price", "bdi"],
         link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
@@ -117,7 +131,7 @@ STORES = [
         urls=["https://swiatkart.com.pl/?s=pokemon&post_type=product"],
         item_selector="li.product",
         name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
-        price_selectors=[".price", ".amount"],
+        price_selectors=[".price .amount", ".price", "bdi"],
         link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
@@ -125,7 +139,7 @@ STORES = [
         urls=["https://grybezpradu.eu/pl/s?q=pokemon"],
         item_selector="div.product-main, div.product-icon, div.product-inner",
         name_selectors=[".product-name", "span.product-name"],
-        price_selectors=[".price", "em"],
+        price_selectors=[".price em", ".price", "em"],
         link_selectors=["a.product-name", "a[href*='/pl/p/']"]
     )
 ]
@@ -135,11 +149,6 @@ STORES = [
 UNAVAILABLE_SIGNALS = [
     "niedostępny", "wyprzedany", "brak w magazynie", 
     "out of stock", "sold out", "brak na stanie", "niedostepny"
-]
-
-AVAILABLE_SIGNALS = [
-    "dodaj do koszyka", "kup teraz", "add to cart", "buy now",
-    "zamów", "do koszyka", "kupuj"
 ]
 
 SEALED_KEYWORDS = [
@@ -155,7 +164,6 @@ BLOCKED_KEYWORDS = [
     "playmat", "mata", "dice", "kości", "counter",
     "figurka", "pluszak", "plush", "manga", "book", "książka",
     "protector", "binder", "page",
-    # Frazy filtrujące śmieciowe elementy nawigacji/menu:
     "wszystkie nowości", "kategorie", "promocje", "bestsellery"
 ]
 
@@ -295,8 +303,10 @@ def extract_products(html: str, base_url: str, store: StoreConfig) -> list[dict]
             for sel in store.price_selectors:
                 el = p.select_one(sel)
                 if el and el.get_text(strip=True):
-                    price = " ".join(el.get_text(strip=True).split())
-                    break
+                    price_text = " ".join(el.get_text(strip=True).split())
+                    if any(char.isdigit() for char in price_text):
+                        price = price_text
+                        break
 
             link = None
             for sel in store.link_selectors:
@@ -331,8 +341,8 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
         for url in store.urls:
             log.info(f"[{store.name}] Sprawdzam: {url}")
             try:
-                # Używamy scrapera cloudscraper do ominięcia Cloudflare (403)
-                r = scraper.get(url, timeout=15)
+                # Omijanie Cloudflare oraz błędów SSL
+                r = scraper.get(url, timeout=15, verify=False)
                 if r.status_code != 200:
                     log.warning(f"[{store.name}] HTTP {r.status_code} dla {url}")
                     continue
@@ -367,7 +377,6 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
                     log.info(f"✅ [{p['store']}] Wysłano: {p['name']} | {p['price']}")
                     time.sleep(1)
 
-                # Jeśli na pierwszym URL-u znaleziono produkty, przerywamy sprawdzanie linków zapasowych
                 if products:
                     break
 
@@ -386,7 +395,6 @@ def main():
             new_alerts = run_check_cycle(sent, summary_state)
             safe_save_json(SENT_FILE, sent)
             
-            # Wysłanie podsumowania o godzinie 18:00
             if datetime.now().hour == SUMMARY_HOUR and summary_state.get("last_summary_date") != date.today().isoformat():
                 send_telegram(format_daily_summary(summary_state["pending"], date.today().strftime("%d.%m.%Y")))
                 summary_state.update({"last_summary_date": date.today().isoformat(), "pending": []})
