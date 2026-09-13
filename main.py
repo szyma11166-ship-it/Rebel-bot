@@ -1,4 +1,4 @@
-import os
+    import os
 import time
 import json
 import logging
@@ -242,7 +242,6 @@ def format_alert(store_name: str, name: str, price: str, link: str, preorder: bo
         f"<b>🔥 NOWY PRODUKT — {store_name.upper()} 🔥</b>\n\n{status}\n\n"
         f"📦 <b>{name}</b>\n\n💰 <b>{price}</b>\n\n"
         f"👉 <a href=\"{link}\">Zobacz w sklepie {store_name}</a>\n\n"
-        f"<i>🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}</i>"
     )
 
 def categorize(name: str, full_text: str) -> str:
