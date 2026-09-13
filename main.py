@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
-# Wyłączenie ostrzeżeń o braku certyfikatu SSL
+# Wyłączenie ostrzeżeń o braku weryfikacji SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ── Konfiguracja Telegrama & Aplikacji ───────────────────────────────────────
@@ -44,84 +44,78 @@ class StoreConfig:
     price_selectors: list[str]
     link_selectors: list[str]
 
-# Uniwersalne selektory radzące sobie z 90% polskich sklepów e-commerce
-UNI_ITEM = ".product, .product-item, .product-box, .product-miniature, .product-wrapper, li.product"
-UNI_NAME = [".product-name", ".name", ".product-title", "h2", "h3"]
-UNI_PRICE = [".price", ".product-price", ".price-new", ".amount"]
-UNI_LINK = ["a.product-name", "a.name", "a.title", "a[href]"]
-
 STORES = [
     StoreConfig(
         name="Rebel",
-        urls=["https://www.rebel.pl/pokemon", "https://www.rebel.pl/karty-pokemon"],
-        item_selector=".product-box, .product-item, .productCard",
-        name_selectors=[".product-name", ".name", "h2", "h3", ".title"],
+        urls=["https://www.rebel.pl/pokemon"],
+        item_selector="div.product, div.product-box, .productCard",
+        name_selectors=[".product-name", "h2", "h3", ".title"],
         price_selectors=[".price", ".product-price", ".amount"],
-        link_selectors=["a[href]"]
+        link_selectors=["a.product-name", "a[href*='/pokemon/']", "a[href]"]
     ),
     StoreConfig(
         name="LofiCards",
         urls=["https://loficards.pl/kategoria-produktu/pokemon-tcg/"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="li.product",
+        name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
+        price_selectors=[".price", ".amount"],
+        link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
         name="PokeTrader",
         urls=["https://poketrader.eu/kategoria/pokemon-tcg/"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="li.product, div.product-grid-item",
+        name_selectors=[".product-title", ".woocommerce-loop-product__title", "h2"],
+        price_selectors=[".price", ".amount"],
+        link_selectors=["a.product-title-link", "a[href]"]
     ),
     StoreConfig(
         name="BoosterPoint",
         urls=["https://boosterpoint.pl/kategoria-produktu/pokemon-tcg/"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="li.product",
+        name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
+        price_selectors=[".price", ".amount"],
+        link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
         name="Flamberg",
         urls=["https://flamberg.com.pl/category/gry-karciane-pokemon-tcg"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="div.product, div.product-thumb",
+        name_selectors=[".caption h4", ".name", "h4", "h3"],
+        price_selectors=[".price", ".price-new"],
+        link_selectors=["a[href*='/product/']", ".caption a", "a[href]"]
     ),
     StoreConfig(
         name="3Trolle",
         urls=["https://3trolle.pl/113-pokemon"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="article.product-miniature, div.product-container",
+        name_selectors=[".product-title", ".h3.product-title", "h3"],
+        price_selectors=[".price", ".product-price"],
+        link_selectors=["a.product-thumbnail", ".product-title a", "a[href]"]
     ),
     StoreConfig(
         name="PokeCollect",
         urls=["https://pokecollect.pl/kategoria-produktu/pokemon-tcg/"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="li.product",
+        name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
+        price_selectors=[".price", ".amount"],
+        link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
         name="Świat Kart",
         urls=["https://swiatkart.com.pl/kategoria-produktu/pokemon-tcg/"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="li.product",
+        name_selectors=[".woocommerce-loop-product__title", "h2", "h3"],
+        price_selectors=[".price", ".amount"],
+        link_selectors=["a.woocommerce-LoopProduct-link", "a[href]"]
     ),
     StoreConfig(
         name="Gry Bez Prądu",
         urls=["https://grybezpradu.eu/pl/c/Pokemon-TCG/88"],
-        item_selector=UNI_ITEM,
-        name_selectors=UNI_NAME,
-        price_selectors=UNI_PRICE,
-        link_selectors=UNI_LINK
+        item_selector="div.product-main, div.product-icon",
+        name_selectors=[".product-name", "span.product-name"],
+        price_selectors=[".price", "em"],
+        link_selectors=["a.product-name", "a[href*='/pl/p/']"]
     )
 ]
 
@@ -149,7 +143,8 @@ BLOCKED_KEYWORDS = [
     "sleeve", "koszulki", "album", "teczka", "folder",
     "playmat", "mata", "dice", "kości", "counter",
     "figurka", "pluszak", "plush", "manga", "book", "książka",
-    "protector", "binder", "page"
+    "protector", "binder", "page",
+    "wszystkie nowości", "kategorie", "promocje", "bestsellery"
 ]
 
 PREORDER_KEYWORDS = [
@@ -207,8 +202,10 @@ def is_already_sent(sent: dict, name: str, url: str) -> bool:
 def mark_sent(sent: dict, name: str, url: str):
     sent["names"].append(normalize_name(name))
     sent["urls"].append(canonical_url(url))
-    if len(sent["names"]) > MAX_HISTORY_SIZE: sent["names"] = sent["names"][-MAX_HISTORY_SIZE:]
-    if len(sent["urls"]) > MAX_HISTORY_SIZE: sent["urls"] = sent["urls"][-MAX_HISTORY_SIZE:]
+    if len(sent["names"]) > MAX_HISTORY_SIZE: 
+        sent["names"] = sent["names"][-MAX_HISTORY_SIZE:]
+    if len(sent["urls"]) > MAX_HISTORY_SIZE: 
+        sent["urls"] = sent["urls"][-MAX_HISTORY_SIZE:]
 
 def load_summary_state() -> dict:
     if not os.path.exists(SUMMARY_FILE):
@@ -222,12 +219,19 @@ def load_summary_state() -> dict:
 # ── Telegram ──────────────────────────────────────────────────────────────────
 
 def send_telegram(msg: str, session: requests.Session):
-    if not TOKEN or TOKEN.startswith("TUTAJ"): return
+    if not TOKEN or TOKEN.startswith("TUTAJ"): 
+        return
     try:
         session.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML", "disable_web_page_preview": True},
-            timeout=10, verify=False
+            data={
+                "chat_id": CHAT_ID, 
+                "text": msg, 
+                "parse_mode": "HTML", 
+                "disable_web_page_preview": True
+            },
+            timeout=10, 
+            verify=False
         )
     except Exception as e:
         log.error(f"Telegram błąd: {e}")
@@ -244,18 +248,22 @@ def format_alert(store_name: str, name: str, price: str, link: str, preorder: bo
 def categorize(name: str, full_text: str) -> str:
     combined = (name + " " + full_text).lower()
     for label, keywords in CATEGORIES:
-        if keywords and any(kw in combined for kw in keywords): return label
+        if keywords and any(kw in combined for kw in keywords): 
+            return label
     return "🔮 Inne Sealed"
 
 def format_daily_summary(pending: list, day_str: str) -> str:
-    if not pending: return f"<b>📊 PODSUMOWANIE DNIA (REBEL) — {day_str}</b>\n\nBrak nowych produktów na Rebelu dzisiaj. 😴"
+    if not pending: 
+        return f"<b>📊 PODSUMOWANIE DNIA (REBEL) — {day_str}</b>\n\nBrak nowych produktów na Rebelu dzisiaj. 😴"
     grouped = {}
-    for p in pending: grouped.setdefault(p.get("category", "🔮 Inne Sealed"), []).append(p)
+    for p in pending: 
+        grouped.setdefault(p.get("category", "🔮 Inne Sealed"), []).append(p)
     lines = [f"<b>📊 PODSUMOWANIE DNIA (REBEL) — {day_str}</b>\n", f"<b>Łącznie nowych produktów: {len(pending)}</b>\n"]
     for label, _ in CATEGORIES:
         if items := grouped.get(label):
             lines.append(f"\n{label}")
-            for p in items: lines.append(f"• <a href=\"{p['link']}\">{p['name']}</a> — {p['price']}{' 🟣' if p.get('preorder') else ''}")
+            for p in items: 
+                lines.append(f"• <a href=\"{p['link']}\">{p['name']}</a> — {p['price']}{' 🟣' if p.get('preorder') else ''}")
     return "\n".join(lines)
 
 # ── Logika Parsowania ─────────────────────────────────────────────────────────
@@ -267,26 +275,46 @@ def is_sealed(name: str, full_text: str) -> bool:
 def extract_products(html: str, base_url: str, store: StoreConfig) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     container = soup.select(store.item_selector)
-    if not container: container = soup.select(".product, .product-item, .product-box, [class*='product']")
     
     products = []
     for p in container:
         try:
-            name = next((el.get_text(strip=True) for sel in store.name_selectors if (el := p.select_one(sel)) and el.get_text(strip=True)), None)
-            if not name: continue
-            
-            price = next((el.get_text(strip=True) for sel in store.price_selectors if (el := p.select_one(sel)) and el.get_text(strip=True)), "brak ceny")
-            
-            link = next((a["href"] if a["href"].startswith("http") else urljoin(base_url, a["href"]) 
-                         for sel in store.link_selectors if (a := p.select_one(sel)) and a.get("href")), None)
-            if not link: continue
+            name = None
+            for sel in store.name_selectors:
+                el = p.select_one(sel)
+                if el and el.get_text(strip=True):
+                    name = el.get_text(strip=True)
+                    break
+            if not name:
+                continue
+
+            price = "brak ceny"
+            for sel in store.price_selectors:
+                el = p.select_one(sel)
+                if el and el.get_text(strip=True):
+                    price = el.get_text(strip=True)
+                    break
+
+            link = None
+            for sel in store.link_selectors:
+                a = p.select_one(sel)
+                if a and a.get("href"):
+                    href = a["href"].strip()
+                    link = href if href.startswith("http") else urljoin(base_url, href)
+                    break
+            if not link:
+                continue
 
             full_text = p.get_text(" ", strip=True).lower()
             available = not any(s in full_text for s in UNAVAILABLE_SIGNALS)
-            
+
             products.append({
-                "store": store.name, "name": name, "price": price, 
-                "link": link, "full_text": full_text, "available": available,
+                "store": store.name,
+                "name": name,
+                "price": price,
+                "link": link,
+                "full_text": full_text,
+                "available": available,
             })
         except Exception:
             pass
@@ -301,7 +329,9 @@ def run_check_cycle(session: requests.Session, sent: dict, summary_state: dict) 
             log.info(f"[{store.name}] Sprawdzam: {url}")
             try:
                 r = session.get(url, timeout=15, verify=False)
-                if not r.ok: continue
+                if not r.ok:
+                    log.warning(f"[{store.name}] HTTP {r.status_code} dla {url}")
+                    continue
 
                 products = extract_products(r.text, url, store)
                 log.info(f"[{store.name}] Znaleziono produktów: {len(products)}")
@@ -323,19 +353,23 @@ def run_check_cycle(session: requests.Session, sent: dict, summary_state: dict) 
 
                     if p["store"].lower() == "rebel":
                         summary_state["pending"].append({
-                            "store": p["store"], "name": p["name"], "price": p["price"], 
-                            "link": p["link"], "category": categorize(p["name"], p["full_text"]), "preorder": preorder
+                            "store": p["store"], 
+                            "name": p["name"], 
+                            "price": p["price"], 
+                            "link": p["link"], 
+                            "category": categorize(p["name"], p["full_text"]), 
+                            "preorder": preorder
                         })
-                    log.info(f"✅ [{p['store']}] Wysłano: {p['name']}")
+                    log.info(f"✅ [{p['store']}] Wysłano: {p['name']} | {p['price']}")
                     time.sleep(1)
 
             except Exception as e:
-                log.error(f"[{store.name}] Błąd: {e}")
+                log.error(f"[{store.name}] Błąd podczas pobierania {url}: {e}")
             time.sleep(2)
     return new_count
 
 def main():
-    log.info(f"🚀 MULTI-STORE TCG BOT (Zaufane Sklepy) START")
+    log.info("🚀 MULTI-STORE TCG BOT (Zaufane Sklepy) START")
     sent = load_sent()
     summary_state = load_summary_state()
 
