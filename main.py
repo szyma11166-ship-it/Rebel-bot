@@ -2,6 +2,7 @@ import os
 import time
 import json
 import logging
+import urllib3
 from dataclasses import dataclass
 from datetime import datetime, date
 from pathlib import Path
@@ -9,6 +10,9 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
+
+# Wyłączenie ostrzeżeń o braku certyfikatu SSL (naprawia błąd sklepu PlanetaGier)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ── Konfiguracja Telegrama & Aplikacji ───────────────────────────────────────
 
@@ -32,6 +36,8 @@ HEADERS = {
 }
 
 # ── Definicja Sklepów TCG ─────────────────────────────────────────────────────
+# Usunięto niedziałające sklepy (błędy DNS). Jeśli linki wygasły (błąd 404), 
+# wystarczy podmienić URL na aktualny w poniższej konfiguracji.
 
 @dataclass
 class StoreConfig:
@@ -108,51 +114,11 @@ STORES = [
         link_selectors=["a[href]"]
     ),
     StoreConfig(
-        name="RGames",
-        urls=["https://rgames.pl/pl/c/Pokemon-TCG/223"],
-        item_selector=".product, .product-main",
-        name_selectors=[".product-name", ".name"],
-        price_selectors=[".price"],
-        link_selectors=["a[href]"]
-    ),
-    StoreConfig(
-        name="Pikselownia",
-        urls=["https://pikselownia.pl/pl/c/Pokemon-TCG/124"],
-        item_selector=".product, .product-main",
-        name_selectors=[".product-name", ".name"],
-        price_selectors=[".price"],
-        link_selectors=["a[href]"]
-    ),
-    StoreConfig(
         name="Mepel",
         urls=["https://mepel.pl/pokemon-tcg"],
         item_selector=".product-miniature, .product-box",
         name_selectors=[".product-title", ".name"],
         price_selectors=[".price"],
-        link_selectors=["a[href]"]
-    ),
-    StoreConfig(
-        name="GrySilesia",
-        urls=["https://grysilesia.pl/pl/c/Pokemon-TCG/145"],
-        item_selector=".product, .product-main",
-        name_selectors=[".product-name", ".name"],
-        price_selectors=[".price"],
-        link_selectors=["a[href]"]
-    ),
-    StoreConfig(
-        name="Aleksander TCG",
-        urls=["https://sklep-aleksander.pl/pl/c/Pokemon-TCG/212"],
-        item_selector=".product, .product-main",
-        name_selectors=[".product-name", ".name"],
-        price_selectors=[".price"],
-        link_selectors=["a[href]"]
-    ),
-    StoreConfig(
-        name="VeselyDragon",
-        urls=["https://www.vesely-dragon.pl/pokemon-karty/"],
-        item_selector=".product, .product-item, .p-item",
-        name_selectors=[".name", ".product-name", "h2"],
-        price_selectors=[".price", ".price-final"],
         link_selectors=["a[href]"]
     )
 ]
@@ -223,7 +189,6 @@ def canonical_url(url: str) -> str:
     return urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
 
 def safe_save_json(filepath: str, data: dict):
-    """Zapis atomowy zapobiegający uszkodzeniu pliku podczas restartu serwera."""
     tmp_path = f"{filepath}.tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -249,7 +214,6 @@ def mark_sent(sent: dict, name: str, url: str):
     sent["names"].append(normalize_name(name))
     sent["urls"].append(canonical_url(url))
     
-    # Czyszczenie pamięci, jeśli przekroczymy dopuszczalny próg (zapobiega wyciekom RAM)
     if len(sent["names"]) > MAX_HISTORY_SIZE:
         sent["names"] = sent["names"][-MAX_HISTORY_SIZE:]
     if len(sent["urls"]) > MAX_HISTORY_SIZE:
@@ -280,6 +244,7 @@ def send_telegram(msg: str, session: requests.Session):
                 "disable_web_page_preview": True,
             },
             timeout=10,
+            verify=False
         )
         if not r.ok:
             log.error(f"Telegram błąd: {r.status_code} {r.text[:200]}")
@@ -419,8 +384,8 @@ def run_check_cycle(session: requests.Session, sent: dict, summary_state: dict) 
         for url in store.urls:
             log.info(f"[{store.name}] Sprawdzam: {url}")
             try:
-                # Korzystamy z sesji, co chroni przed banami IP
-                r = session.get(url, timeout=15)
+                # Wymuszony verify=False omija problemy z certyfikatami SSL
+                r = session.get(url, timeout=15, verify=False)
                 
                 if r.status_code == 429:
                     log.warning(f"[{store.name}] Rate limit (429) — omijamy na ten cykl.")
@@ -452,7 +417,6 @@ def run_check_cycle(session: requests.Session, sent: dict, summary_state: dict) 
                     mark_sent(sent, p["name"], p["link"])
                     new_count += 1
 
-                    # PRO ZMIANA: Zbieranie do podsumowania TYLKO dla sklepu Rebel
                     if p["store"].lower() == "rebel":
                         summary_state["pending"].append({
                             "store": p["store"],
@@ -489,13 +453,12 @@ def maybe_send_summary(session: requests.Session, summary_state: dict):
     summary_state["pending"] = []
 
 def main():
-    log.info("🚀 MULTI-STORE POKEMON TCG BOT (PRO) START")
+    log.info(f"🚀 MULTI-STORE POKEMON TCG BOT (PRO) START")
     log.info(f"Śledzę {len(STORES)} polskich sklepów TCG. Cykl co {CHECK_EVERY}s.")
 
     sent = load_sent()
     summary_state = load_summary_state()
 
-    # PRO ZMIANA: Utrzymywanie stałej sesji
     with requests.Session() as session:
         session.headers.update(HEADERS)
         
