@@ -6,19 +6,16 @@ import ssl
 import urllib3
 from dataclasses import dataclass
 from datetime import datetime, date
-from typing import List, Set, Optional
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 import cloudscraper
 from bs4 import BeautifulSoup
 
-# ── Rozwiązanie problemu SSL Handshake Failure ──────────────────────────────
+# ── Globalne naprawienie problemów z SSL i certyfikatami ──────────────────────
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# Wymuszenie obsługi starszych/szerszych szyfrów SSL przez bibliotekę urllib3
 try:
-    urllib3.util.ssl_.DEFAULT_CIPHERS += ':HIGH:!DH:!aNULL:@SECLEVEL=1'
+    ssl._create_default_https_context = ssl._create_unverified_context
 except AttributeError:
     pass
 
@@ -52,13 +49,14 @@ scraper.headers.update(HEADERS)
 TOKEN   = "8641671766:AAEfRWe-lHc_8LLTA-rDecW3NjooDmENOl4"
 CHAT_ID = "-1003743099672"
 
+
 SENT_FILE = "tcg_sent.json"
 SUMMARY_FILE = "tcg_summary.json"
 CHECK_EVERY = 300       # 5 minut
 SUMMARY_HOUR = 18       # Godzina podsumowania
 MAX_HISTORY_SIZE = 5000 
 
-# ── Definicja Sklepów TCG (Poprawione URL-e i Selectory Ceny) ────────────────
+# ── Definicja Sklepów TCG ────────────────────────────────────────────────────
 
 @dataclass
 class StoreConfig:
@@ -241,8 +239,7 @@ def send_telegram(msg: str):
                 "parse_mode": "HTML", 
                 "disable_web_page_preview": True
             },
-            timeout=10, 
-            verify=False
+            timeout=10
         )
     except Exception as e:
         log.error(f"Telegram błąd: {e}")
@@ -341,8 +338,7 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
         for url in store.urls:
             log.info(f"[{store.name}] Sprawdzam: {url}")
             try:
-                # Omijanie Cloudflare oraz błędów SSL
-                r = scraper.get(url, timeout=15, verify=False)
+                r = scraper.get(url, timeout=15)
                 if r.status_code != 200:
                     log.warning(f"[{store.name}] HTTP {r.status_code} dla {url}")
                     continue
