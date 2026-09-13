@@ -10,6 +10,17 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
+# Tworzymy obiekt scrapera raz na samej górze (poza funkcjami)
+scraper = cloudscraper.create_scraper(
+    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+)
+import cloudscraper
+
+# Tworzymy obiekt scrapera raz na samej górze (poza funkcjami)
+scraper = cloudscraper.create_scraper(
+    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+)
+
 # Wyłączenie ostrzeżeń o braku weryfikacji SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
