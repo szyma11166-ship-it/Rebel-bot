@@ -368,6 +368,18 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
                 products = extract_products(r.text, url, store)
                 log.info(f"[{store.name}] Znaleziono produktów: {len(products)}")
 
+                # Pierwszy start bez historii:
+                # zapisujemy produkty, ale nie wysyłamy alertów
+                if not os.path.exists(SENT_FILE):
+                    for p in products:
+                        mark_sent(sent, p["name"], p["link"])
+
+                    log.info(
+                        f"[{store.name}] Pierwsze uruchomienie - "
+                        f"zapisano {len(products)} produktów bez wysyłania alertów"
+                    )
+                    continue
+                
                 for p in products:
                     # Twarde odrzucanie produktów bez ceny (eliminuje niedostępne na 3Trolle)
                     if p["price"] == "Brak ceny":
@@ -410,28 +422,46 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
 
 def main():
     log.info("🚀 MULTI-STORE TCG BOT (Zaufane Sklepy) START")
+
     sent = load_sent()
-    
+
     log.info(f"Plik istnieje: {os.path.exists(SENT_FILE)}")
     log.info(f"Wczytano nazw: {len(sent['names'])}")
     log.info(f"Wczytano URL: {len(sent['urls'])}")
-    
+
     summary_state = load_summary_state()
 
     while True:
         try:
             new_alerts = run_check_cycle(sent, summary_state)
+
             safe_save_json(SENT_FILE, sent)
-            
+
             if datetime.now().hour == SUMMARY_HOUR and summary_state.get("last_summary_date") != date.today().isoformat():
-                send_telegram(format_daily_summary(summary_state["pending"], date.today().strftime("%d.%m.%Y")))
-                summary_state.update({"last_summary_date": date.today().isoformat(), "pending": []})
-            
+                send_telegram(
+                    format_daily_summary(
+                        summary_state["pending"],
+                        date.today().strftime("%d.%m.%Y")
+                    )
+                )
+
+                summary_state.update({
+                    "last_summary_date": date.today().isoformat(),
+                    "pending": []
+                })
+
             safe_save_json(SUMMARY_FILE, summary_state)
-            log.info(f"🎯 Zakończono cykl. Nowych alertów: {new_alerts}. Czekam {CHECK_EVERY}s...\n")
+
+            log.info(
+                f"🎯 Zakończono cykl. Nowych alertów: {new_alerts}. "
+                f"Czekam {CHECK_EVERY}s...\n"
+            )
+
         except Exception as e:
             log.error(f"Błąd pętli głównej: {e}")
+
         time.sleep(CHECK_EVERY)
+
 
 if __name__ == "__main__":
     main()
