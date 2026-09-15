@@ -411,6 +411,11 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
 def main():
     log.info("🚀 MULTI-STORE TCG BOT (Zaufane Sklepy) START")
     sent = load_sent()
+    
+    log.info(f"Plik istnieje: {os.path.exists(SENT_FILE)}")
+    log.info(f"Wczytano nazw: {len(sent['names'])}")
+    log.info(f"Wczytano URL: {len(sent['urls'])}")
+    
     summary_state = load_summary_state()
 
     while True:
