@@ -49,7 +49,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── Inicjalizacja Scrapera z adapterem TLS ──────────────────────────────────
+# ── Inicjalizacja Scrapera ───────────────────────────────────────────────────
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -92,7 +92,7 @@ STORES = [
     StoreConfig(
         name="Rebel",
         urls=["https://www.rebel.pl/pokemon"],
-        item_selector="div.product, div.product-box, .productCard",
+        item_selector="div.product-box",  # Precyzyjny selektor zapobiegający podwójnemu łapaniu
         name_selectors=[".product-name", "h2", "h3", ".title"],
         price_selectors=[".price", ".product-price", ".amount"],
         link_selectors=["a.product-name", "a[href*='/pokemon/']", "a[href]"]
@@ -124,7 +124,7 @@ STORES = [
     StoreConfig(
         name="Flamberg",
         urls=["https://flamberg.com.pl/pol_m_Karty-Kolekcjonerskie_Pokemon-TCG-381.html"],
-        item_selector="div.product_data, div.product, div.product-layout",
+        item_selector="div.product_data",
         name_selectors=[".product-name", ".name", "h3", "h4"],
         price_selectors=[".price_value", ".price", ".price-new"],
         link_selectors=["a.product-name", "a[href]"]
@@ -132,7 +132,7 @@ STORES = [
     StoreConfig(
         name="3Trolle",
         urls=["https://3trolle.pl/szukaj?controller=search&s=pokemon"],
-        item_selector="article.product-miniature, div.product-container",
+        item_selector="article.product-miniature",
         name_selectors=[".product-title", ".h3.product-title", "h3"],
         price_selectors=[".current-price", ".product-price-and-shipping", ".price", ".product-price"],
         link_selectors=["a.product-thumbnail", ".product-title a", "a[href]"]
@@ -156,7 +156,7 @@ STORES = [
     StoreConfig(
         name="Gry Bez Prądu",
         urls=["https://grybezpradu.eu/pl/s?q=pokemon"],
-        item_selector="div.product-main, div.product-icon, div.product-inner",
+        item_selector="div.product-main",
         name_selectors=[".product-name", "span.product-name"],
         price_selectors=[".price em", ".price", "em"],
         link_selectors=["a.product-name", "a[href*='/pl/p/']"]
@@ -205,11 +205,12 @@ CATEGORIES = [
 # ── Funkcje Pomocnicze & Zapis Stanu ──────────────────────────────────────────
 
 def normalize_name(name: str) -> str:
-    return " ".join(name.lower().split())
+    return " ".join(name.lower().replace("\xa0", " ").split())
 
 def canonical_url(url: str) -> str:
     p = urlparse(url)
-    return urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
+    path = p.path.rstrip('/')
+    return urlunparse((p.scheme, p.netloc, path, "", "", ""))
 
 def safe_save_json(filepath: str, data: dict):
     tmp_path = f"{filepath}.tmp"
@@ -231,8 +232,12 @@ def is_already_sent(sent: dict, name: str, url: str) -> bool:
     return normalize_name(name) in sent["names"] or canonical_url(url) in sent["urls"]
 
 def mark_sent(sent: dict, name: str, url: str):
-    sent["names"].append(normalize_name(name))
-    sent["urls"].append(canonical_url(url))
+    norm_n = normalize_name(name)
+    canon_u = canonical_url(url)
+    if norm_n not in sent["names"]:
+        sent["names"].append(norm_n)
+    if canon_u not in sent["urls"]:
+        sent["urls"].append(canon_u)
     if len(sent["names"]) > MAX_HISTORY_SIZE: 
         sent["names"] = sent["names"][-MAX_HISTORY_SIZE:]
     if len(sent["urls"]) > MAX_HISTORY_SIZE: 
@@ -246,6 +251,17 @@ def load_summary_state() -> dict:
             return json.load(f)
     except Exception:
         return {"last_summary_date": None, "pending": []}
+
+def add_to_pending(summary_state: dict, product: dict):
+    """Gwarantuje, że ten sam produkt nie trafi dwukrotnie do podsumowania."""
+    pending = summary_state.setdefault("pending", [])
+    norm_name = normalize_name(product["name"])
+    canon_link = canonical_url(product["link"])
+    
+    for item in pending:
+        if normalize_name(item["name"]) == norm_name or canonical_url(item["link"]) == canon_link:
+            return
+    pending.append(product)
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 
@@ -285,10 +301,21 @@ def categorize(name: str, full_text: str) -> str:
 def format_daily_summary(pending: list, day_str: str) -> str:
     if not pending: 
         return f"<b>📊 PODSUMOWANIE DNIA (REBEL) — {day_str}</b>\n\nBrak nowych produktów na Rebelu dzisiaj. 😴"
+    
+    # Ostateczna filtracja unikalności przed wysłaniem
+    unique_pending = []
+    seen = set()
+    for p in pending:
+        key = (normalize_name(p['name']), canonical_url(p['link']))
+        if key not in seen:
+            seen.add(key)
+            unique_pending.append(p)
+
     grouped = {}
-    for p in pending: 
+    for p in unique_pending: 
         grouped.setdefault(p.get("category", "🔮 Inne Sealed"), []).append(p)
-    lines = [f"<b>📊 PODSUMOWANIE DNIA (REBEL) — {day_str}</b>\n", f"<b>Łącznie nowych produktów: {len(pending)}</b>\n"]
+    
+    lines = [f"<b>📊 PODSUMOWANIE DNIA (REBEL) — {day_str}</b>\n", f"<b>Łącznie nowych produktów: {len(unique_pending)}</b>\n"]
     for label, _ in CATEGORIES:
         if items := grouped.get(label):
             lines.append(f"\n{label}")
@@ -368,20 +395,15 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
                 products = extract_products(r.text, url, store)
                 log.info(f"[{store.name}] Znaleziono produktów: {len(products)}")
 
-                # Pierwszy start bez historii:
-                # zapisujemy produkty, ale nie wysyłamy alertów
+                # Pierwszy start: Zapisujemy istniejące oferty bez powiadamiania
                 if not os.path.exists(SENT_FILE):
                     for p in products:
                         mark_sent(sent, p["name"], p["link"])
-
-                    log.info(
-                        f"[{store.name}] Pierwsze uruchomienie - "
-                        f"zapisano {len(products)} produktów bez wysyłania alertów"
-                    )
+                    safe_save_json(SENT_FILE, sent)
+                    log.info(f"[{store.name}] Pierwsze uruchomienie - zapisano {len(products)} produktów.")
                     continue
                 
                 for p in products:
-                    # Twarde odrzucanie produktów bez ceny (eliminuje niedostępne na 3Trolle)
                     if p["price"] == "Brak ceny":
                         mark_sent(sent, p["name"], p["link"])
                         continue
@@ -401,7 +423,7 @@ def run_check_cycle(sent: dict, summary_state: dict) -> int:
                     new_count += 1
 
                     if p["store"].lower() == "rebel":
-                        summary_state["pending"].append({
+                        add_to_pending(summary_state, {
                             "store": p["store"], 
                             "name": p["name"], 
                             "price": p["price"], 
@@ -424,10 +446,8 @@ def main():
     log.info("🚀 MULTI-STORE TCG BOT (Zaufane Sklepy) START")
 
     sent = load_sent()
-
-    log.info(f"Plik istnieje: {os.path.exists(SENT_FILE)}")
-    log.info(f"Wczytano nazw: {len(sent['names'])}")
-    log.info(f"Wczytano URL: {len(sent['urls'])}")
+    log.info(f"Wczytano nazw z historii: {len(sent['names'])}")
+    log.info(f"Wczytano URL z historii: {len(sent['urls'])}")
 
     summary_state = load_summary_state()
 
@@ -437,7 +457,9 @@ def main():
 
             safe_save_json(SENT_FILE, sent)
 
-            if datetime.now().hour == SUMMARY_HOUR and summary_state.get("last_summary_date") != date.today().isoformat():
+            # Wysyłka podsumowania dnia o ustalonej godzinie
+            now = datetime.now()
+            if now.hour == SUMMARY_HOUR and summary_state.get("last_summary_date") != date.today().isoformat():
                 send_telegram(
                     format_daily_summary(
                         summary_state["pending"],
@@ -452,16 +474,12 @@ def main():
 
             safe_save_json(SUMMARY_FILE, summary_state)
 
-            log.info(
-                f"🎯 Zakończono cykl. Nowych alertów: {new_alerts}. "
-                f"Czekam {CHECK_EVERY}s...\n"
-            )
+            log.info(f"🎯 Zakończono cykl. Nowych alertów: {new_alerts}. Czekam {CHECK_EVERY}s...\n")
 
         except Exception as e:
             log.error(f"Błąd pętli głównej: {e}")
 
         time.sleep(CHECK_EVERY)
-
 
 if __name__ == "__main__":
     main()
